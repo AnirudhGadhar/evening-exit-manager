@@ -1,163 +1,132 @@
-import { useState, useEffect } from "react";
+import { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Car, Clock } from "lucide-react";
-import ParkingEntryForm from "@/components/ParkingEntryForm";
-import ParkingExitForm from "@/components/ParkingExitForm";
-import VehicleList from "@/components/VehicleList";
-import { Vehicle } from "@/types/vehicle";
-import { toast } from "sonner";
+import { Button } from "@/components/ui/button";
+import { toast } from "@/hooks/use-toast";
+import { statsApi, parkingSessionsApi } from "@/lib/api";
+import { Car, Clock, ParkingSquare } from "lucide-react";
 
 const Index = () => {
-  const [vehicles, setVehicles] = useState<Vehicle[]>([]);
+  const navigate = useNavigate();
+  const [stats, setStats] = useState({ activeSessions: 0, totalVehicles: 0, availableSlots: 0 });
+  const [sessions, setSessions] = useState([]);
+  const [user, setUser] = useState<any>(null);
 
-  // Load vehicles from localStorage on mount
   useEffect(() => {
-    const stored = localStorage.getItem("parkedVehicles");
-    if (stored) {
-      setVehicles(JSON.parse(stored));
-    }
-  }, []);
-
-  // Save to localStorage whenever vehicles change
-  useEffect(() => {
-    localStorage.setItem("parkedVehicles", JSON.stringify(vehicles));
-  }, [vehicles]);
-
-  // Auto-clear at 6 PM
-  useEffect(() => {
-    const checkTime = () => {
-      const now = new Date();
-      const hours = now.getHours();
-      const minutes = now.getMinutes();
-      
-      // Check if it's 6 PM (18:00)
-      if (hours === 18 && minutes === 0) {
-        setVehicles([]);
-        localStorage.removeItem("parkedVehicles");
-        toast.success("All vehicles cleared at 6 PM");
-      }
-    };
-
-    // Check every minute
-    const interval = setInterval(checkTime, 60000);
+    const token = localStorage.getItem("token");
+    const storedUser = localStorage.getItem("user");
     
-    return () => clearInterval(interval);
-  }, []);
+    if (!token || !storedUser) {
+      navigate("/login");
+      return;
+    }
+    
+    setUser(JSON.parse(storedUser));
+    loadData();
+  }, [navigate]);
 
-  const handleVehicleEntry = (vehicle: Vehicle) => {
-    setVehicles([...vehicles, vehicle]);
-    toast.success(`Vehicle ${vehicle.vehicleNumber} parked successfully`);
+  const loadData = async () => {
+    try {
+      const [statsData, sessionsData] = await Promise.all([
+        statsApi.get(),
+        parkingSessionsApi.getActive(),
+      ]);
+      setStats(statsData);
+      setSessions(sessionsData);
+    } catch (error: any) {
+      toast({ title: "Error", description: error.message, variant: "destructive" });
+    }
   };
 
-  const handleVehicleExit = (vehicleNumber: string) => {
-    setVehicles(vehicles.filter(v => v.vehicleNumber !== vehicleNumber));
-    toast.success(`Vehicle ${vehicleNumber} removed successfully`);
+  const handleLogout = () => {
+    localStorage.removeItem("token");
+    localStorage.removeItem("user");
+    navigate("/login");
+  };
+
+  const handleExitSession = async (sessionId: number) => {
+    try {
+      await parkingSessionsApi.exit(sessionId);
+      toast({ title: "Success", description: "Vehicle exited successfully" });
+      loadData();
+    } catch (error: any) {
+      toast({ title: "Error", description: error.message, variant: "destructive" });
+    }
   };
 
   return (
-    <div className="min-h-screen bg-background py-8 px-4">
-      <div className="max-w-7xl mx-auto">
-        {/* Header */}
-        <div className="mb-8 text-center">
-          <div className="flex items-center justify-center gap-3 mb-3">
-            <Car className="h-10 w-10 text-primary" />
-            <h1 className="text-4xl font-bold text-foreground">Parking Management System</h1>
+    <div className="min-h-screen bg-gradient-to-br from-primary/10 to-secondary/10">
+      <div className="container mx-auto p-6">
+        <div className="flex justify-between items-center mb-8">
+          <div>
+            <h1 className="text-4xl font-bold">Parking Management</h1>
+            <p className="text-muted-foreground">Welcome, {user?.full_name}</p>
           </div>
-          <p className="text-muted-foreground flex items-center justify-center gap-2">
-            <Clock className="h-4 w-4" />
-            All vehicles auto-clear at 6:00 PM daily
-          </p>
+          <Button onClick={handleLogout} variant="outline">Logout</Button>
         </div>
 
-        {/* Stats */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
           <Card>
-            <CardHeader className="pb-3">
-              <CardTitle className="text-sm font-medium text-muted-foreground">Total Parked</CardTitle>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Active Sessions</CardTitle>
+              <Clock className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="text-3xl font-bold text-primary">{vehicles.length}</div>
+              <div className="text-2xl font-bold">{stats.activeSessions}</div>
             </CardContent>
           </Card>
-          
+
           <Card>
-            <CardHeader className="pb-3">
-              <CardTitle className="text-sm font-medium text-muted-foreground">Cars</CardTitle>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Your Vehicles</CardTitle>
+              <Car className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="text-3xl font-bold text-accent">
-                {vehicles.filter(v => v.vehicleType === "Car").length}
+              <div className="text-2xl font-bold">{stats.totalVehicles}</div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Available Slots</CardTitle>
+              <ParkingSquare className="h-4 w-4 text-muted-foreground" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">{stats.availableSlots}</div>
+            </CardContent>
+          </Card>
+        </div>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Active Parking Sessions</CardTitle>
+            <CardDescription>Your currently parked vehicles</CardDescription>
+          </CardHeader>
+          <CardContent>
+            {sessions.length === 0 ? (
+              <p className="text-muted-foreground text-center py-8">No active parking sessions</p>
+            ) : (
+              <div className="space-y-4">
+                {sessions.map((session: any) => (
+                  <div key={session.id} className="flex items-center justify-between p-4 border rounded-lg">
+                    <div>
+                      <p className="font-semibold">{session.vehicle_number}</p>
+                      <p className="text-sm text-muted-foreground">
+                        Slot: {session.slot_number} | Type: {session.vehicle_type}
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        Entry: {new Date(session.entry_time).toLocaleString()}
+                      </p>
+                    </div>
+                    <Button onClick={() => handleExitSession(session.id)} variant="destructive">
+                      Exit
+                    </Button>
+                  </div>
+                ))}
               </div>
-            </CardContent>
-          </Card>
-          
-          <Card>
-            <CardHeader className="pb-3">
-              <CardTitle className="text-sm font-medium text-muted-foreground">Bikes</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="text-3xl font-bold text-accent">
-                {vehicles.filter(v => v.vehicleType === "Bike").length}
-              </div>
-            </CardContent>
-          </Card>
-        </div>
-
-        {/* Main Content */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Forms */}
-          <div className="lg:col-span-1">
-            <Tabs defaultValue="entry" className="w-full">
-              <TabsList className="grid w-full grid-cols-2">
-                <TabsTrigger value="entry">Entry</TabsTrigger>
-                <TabsTrigger value="exit">Exit</TabsTrigger>
-              </TabsList>
-              
-              <TabsContent value="entry" className="mt-4">
-                <Card>
-                  <CardHeader>
-                    <CardTitle>Vehicle Entry</CardTitle>
-                    <CardDescription>Register a new vehicle</CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    <ParkingEntryForm onSubmit={handleVehicleEntry} />
-                  </CardContent>
-                </Card>
-              </TabsContent>
-              
-              <TabsContent value="exit" className="mt-4">
-                <Card>
-                  <CardHeader>
-                    <CardTitle>Vehicle Exit</CardTitle>
-                    <CardDescription>Remove a parked vehicle</CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    <ParkingExitForm 
-                      vehicles={vehicles}
-                      onExit={handleVehicleExit}
-                    />
-                  </CardContent>
-                </Card>
-              </TabsContent>
-            </Tabs>
-          </div>
-
-          {/* Vehicle List */}
-          <div className="lg:col-span-2">
-            <Card className="h-full">
-              <CardHeader>
-                <CardTitle>Currently Parked Vehicles</CardTitle>
-                <CardDescription>
-                  {vehicles.length} vehicle{vehicles.length !== 1 ? 's' : ''} in parking
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <VehicleList vehicles={vehicles} />
-              </CardContent>
-            </Card>
-          </div>
-        </div>
+            )}
+          </CardContent>
+        </Card>
       </div>
     </div>
   );
